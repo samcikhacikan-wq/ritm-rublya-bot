@@ -14,7 +14,7 @@ RSS_FEEDS = [
 ]
 
 # 4. Расписание
-POST_INTERVAL_MINUTES = 20
+POST_INTERVAL_HOURS = 20
 MAX_POSTS_PER_RUN = 1
 
 # 5. Стиль
