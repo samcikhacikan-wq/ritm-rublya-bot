@@ -171,6 +171,8 @@ def run():
         post_text = rewrite_with_groq(item["title"], item["summary"])
         if not post_text:
             continue
+        post_text = "\n\n".join(p.strip() for p in post_text.split("\n") if p.strip())
+        post_text = "\n\n".join(p.strip() for p in post_text.split("\n") if p.strip())
         post_text += "\n\n@ritmrublya"
         if send_to_telegram(post_text):
             mark_posted(conn, item["url"])
