@@ -35,6 +35,15 @@ log = logging.getLogger(__name__)
 
 CURRENCY_MESSAGE_ID = 13
 
+# Ключевые слова финансовых новостей
+FINANCE_KEYWORDS = [
+    "рубл", "доллар", "евро", "юань", "валют", "курс", "банк", "цб", "цент",
+    "инфляц", "ставк", "бирж", "акци", "облигац", "инвест", "бюджет", "налог",
+    "экономик", "ввп", "экспорт", "импорт", "торговл", "нефт", "газ", "золот",
+    "санкци", "бизнес", "компани", "прибыл", "убыток", "долг", "кредит",
+    "ипотек", "депозит", "вклад", "финанс", "деньг", "капитал", "рынок",
+]
+
 
 def init_db():
     conn = sqlite3.connect("posted.db")
@@ -61,6 +70,12 @@ def clean_text(text):
     text = re.sub(r"<[^>]+>", "", text)
     text = text.encode("utf-8", errors="ignore").decode("utf-8")
     return text.strip()
+
+
+def is_finance_news(title, summary):
+    """Проверяет что новость про финансы."""
+    text = (title + " " + summary).lower()
+    return any(kw in text for kw in FINANCE_KEYWORDS)
 
 
 def get_currency_rates():
@@ -121,24 +136,28 @@ def fetch_news(conn):
             resp.raise_for_status()
             resp.encoding = "utf-8"
             feed = feedparser.parse(resp.text)
-            for entry in feed.entries[:20]:
+            for entry in feed.entries[:30]:
                 url = entry.get("link", "")
                 if not url or is_posted(conn, url):
                     continue
                 title = clean_text(entry.get("title", ""))
                 summary = clean_text(entry.get("summary", entry.get("description", "")))[:600]
-                if title:
-                    items.append({"url": url, "title": title, "summary": summary})
+                if not title:
+                    continue
+                if not is_finance_news(title, summary):
+                    log.info("Пропускаю (не финансы): %s", title)
+                    continue
+                items.append({"url": url, "title": title, "summary": summary})
         except Exception as e:
             log.warning("Ошибка фида %s: %s", feed_url, e)
-    log.info("Новых новостей: %d", len(items))
+    log.info("Финансовых новостей: %d", len(items))
     return items
 
 
 def rewrite_with_groq(title, summary):
     user_message = (
-        f"Zagolovok: {title}\n\nKratkoe soderzhanie: {summary}\n\n"
-        "Napishi post dlya Telegram-kanala na osnove etoy novosti."
+        f"Новость:\nЗаголовок: {title}\nСодержание: {summary}\n\n"
+        "Напиши пост для Telegram-канала."
     )
     payload = json.dumps({
         "model": "llama-3.3-70b-versatile",
@@ -147,7 +166,7 @@ def rewrite_with_groq(title, summary):
             {"role": "user", "content": user_message},
         ],
         "max_tokens": 300,
-        "temperature": 0.9,
+        "temperature": 0.8,
     }, ensure_ascii=False).encode("utf-8")
 
     try:
@@ -161,7 +180,10 @@ def rewrite_with_groq(title, summary):
             timeout=30,
         )
         resp.raise_for_status()
-        return resp.json()["choices"][0]["message"]["content"].strip()
+        result = resp.json()["choices"][0]["message"]["content"].strip()
+        if "ПРОПУСТИТЬ" in result:
+            return None
+        return result
     except Exception as e:
         log.error("Ошибка Groq API: %s", e)
         return None
@@ -199,9 +221,10 @@ def run():
         log.info("Обрабатываю: %s", item["title"])
         post_text = rewrite_with_groq(item["title"], item["summary"])
         if not post_text:
-            log.warning("Groq не вернул текст, пропускаю.")
+            log.warning("Пропускаю новость.")
+            mark_posted(conn, item["url"])
             continue
-        post_text += '\n\n@ritmrublya'
+        post_text += "\n\n@ritmrublya"
         if send_to_telegram(post_text):
             mark_posted(conn, item["url"])
             posted_count += 1
