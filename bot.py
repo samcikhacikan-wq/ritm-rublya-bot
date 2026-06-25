@@ -167,7 +167,7 @@ def rewrite_with_groq(title, summary):
         ],
         "max_tokens": 300,
         "temperature": 0.8,
-    }, ensure_ascii=False).encode("utf-8")
+    })
 
     try:
         resp = requests.post(
