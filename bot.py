@@ -174,9 +174,8 @@ def rewrite_with_groq(title, summary):
             "https://api.groq.com/openai/v1/chat/completions",
             headers={
                 "Authorization": f"Bearer {GROQ_API_KEY}",
-                "Content-Type": "application/json; charset=utf-8",
             },
-            data=payload,
+            json=payload,
             timeout=30,
         )
         resp.raise_for_status()
