@@ -1,11 +1,5 @@
 # -*- coding: utf-8 -*-
-"""
-Finance News Bot
-Запуск: python3 bot.py
-"""
-
 import re
-import json
 import sqlite3
 import logging
 import time
@@ -18,7 +12,7 @@ from config import (
     TELEGRAM_CHANNEL_ID,
     GROQ_API_KEY,
     RSS_FEEDS,
-    POST_INTERVAL_MINUTES,
+    POST_INTERVAL_HOURS,
     MAX_POSTS_PER_RUN,
     BOT_STYLE_PROMPT,
 )
@@ -27,29 +21,19 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)s  %(message)s",
     handlers=[
-        logging.FileHandler("bot.log", encoding="utf-8"),
+        logging.FileHandler("/data/bot.log", encoding="utf-8"),
         logging.StreamHandler(),
     ],
 )
 log = logging.getLogger(__name__)
 
+DB_PATH = "/data/posted.db"
 CURRENCY_MESSAGE_ID = 13
-
-# Ключевые слова финансовых новостей
-FINANCE_KEYWORDS = [
-    "рубл", "доллар", "евро", "юань", "валют", "курс", "банк", "цб", "цент",
-    "инфляц", "ставк", "бирж", "акци", "облигац", "инвест", "бюджет", "налог",
-    "экономик", "ввп", "экспорт", "импорт", "торговл", "нефт", "газ", "золот",
-    "санкци", "бизнес", "компани", "прибыл", "убыток", "долг", "кредит",
-    "ипотек", "депозит", "вклад", "финанс", "деньг", "капитал", "рынок",
-]
 
 
 def init_db():
-    conn = sqlite3.connect("posted.db")
-    conn.execute(
-        "CREATE TABLE IF NOT EXISTS posted (url TEXT PRIMARY KEY, posted_at TEXT)"
-    )
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute("CREATE TABLE IF NOT EXISTS posted (url TEXT PRIMARY KEY, posted_at TEXT)")
     conn.commit()
     return conn
 
@@ -72,32 +56,22 @@ def clean_text(text):
     return text.strip()
 
 
-def is_finance_news(title, summary):
-    """Проверяет что новость про финансы."""
-    text = (title + " " + summary).lower()
-    return any(kw in text for kw in FINANCE_KEYWORDS)
-
-
 def get_currency_rates():
     try:
-        resp = requests.get(
-            "https://www.cbr-xml-daily.ru/daily_json.js",
-            timeout=10,
-        )
+        resp = requests.get("https://www.cbr-xml-daily.ru/daily_json.js", timeout=10)
         resp.raise_for_status()
         data = resp.json()
         usd = data["Valute"]["USD"]["Value"]
         eur = data["Valute"]["EUR"]["Value"]
         cny = data["Valute"]["CNY"]["Value"]
         date = data["Date"][:10]
-        text = (
+        return (
             f"Курсы валют ЦБ РФ на {date}\n\n"
             f"Доллар США: {usd:.2f} руб.\n"
             f"Евро: {eur:.2f} руб.\n"
             f"Юань: {cny:.2f} руб.\n\n"
             f"@ritmrublya"
         )
-        return text
     except Exception as e:
         log.error("Ошибка получения курсов: %s", e)
         return None
@@ -110,15 +84,11 @@ def update_currency_message():
     try:
         resp = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/editMessageText",
-            json={
-                "chat_id": TELEGRAM_CHANNEL_ID,
-                "message_id": CURRENCY_MESSAGE_ID,
-                "text": text,
-            },
+            json={"chat_id": TELEGRAM_CHANNEL_ID, "message_id": CURRENCY_MESSAGE_ID, "text": text},
             timeout=15,
         )
         resp.raise_for_status()
-        log.info("Курсы валют обновлены ✓")
+        log.info("Курсы валют обновлены")
     except Exception as e:
         log.error("Ошибка обновления курсов: %s", e)
 
@@ -128,61 +98,46 @@ def fetch_news(conn):
     for feed_url in RSS_FEEDS:
         log.info("Читаю фид: %s", feed_url)
         try:
-            resp = requests.get(
-                feed_url,
-                timeout=10,
-                headers={"User-Agent": "Mozilla/5.0"},
-            )
+            resp = requests.get(feed_url, timeout=10, headers={"User-Agent": "Mozilla/5.0"})
             resp.raise_for_status()
             resp.encoding = "utf-8"
             feed = feedparser.parse(resp.text)
-            for entry in feed.entries[:30]:
+            for entry in feed.entries[:20]:
                 url = entry.get("link", "")
                 if not url or is_posted(conn, url):
                     continue
                 title = clean_text(entry.get("title", ""))
                 summary = clean_text(entry.get("summary", entry.get("description", "")))[:600]
-                if not title:
-                    continue
-                if not is_finance_news(title, summary):
-                    log.info("Пропускаю (не финансы): %s", title)
-                    continue
-                items.append({"url": url, "title": title, "summary": summary})
+                if title:
+                    items.append({"url": url, "title": title, "summary": summary})
         except Exception as e:
             log.warning("Ошибка фида %s: %s", feed_url, e)
-    log.info("Финансовых новостей: %d", len(items))
+    log.info("Новых новостей: %d", len(items))
     return items
 
 
 def rewrite_with_groq(title, summary):
     user_message = (
-        f"Новость:\nЗаголовок: {title}\nСодержание: {summary}\n\n"
-        "Напиши пост для Telegram-канала."
+        f"Заголовок: {title}\n\nКраткое содержание: {summary}\n\n"
+        "Напиши пост для Telegram-канала на основе этой новости."
     )
-    payload = json.dumps({
-        "model": "llama-3.3-70b-versatile",
-        "messages": [
-            {"role": "system", "content": BOT_STYLE_PROMPT},
-            {"role": "user", "content": user_message},
-        ],
-        "max_tokens": 300,
-        "temperature": 0.8,
-    })
-
     try:
         resp = requests.post(
             "https://api.groq.com/openai/v1/chat/completions",
-            headers={
-                "Authorization": f"Bearer {GROQ_API_KEY}",
+            headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+            json={
+                "model": "llama-3.3-70b-versatile",
+                "messages": [
+                    {"role": "system", "content": BOT_STYLE_PROMPT},
+                    {"role": "user", "content": user_message},
+                ],
+                "max_tokens": 300,
+                "temperature": 0.9,
             },
-            json=payload,
             timeout=30,
         )
         resp.raise_for_status()
-        result = resp.json()["choices"][0]["message"]["content"].strip()
-        if "ПРОПУСТИТЬ" in result:
-            return None
-        return result
+        return resp.json()["choices"][0]["message"]["content"].strip()
     except Exception as e:
         log.error("Ошибка Groq API: %s", e)
         return None
@@ -192,15 +147,11 @@ def send_to_telegram(text):
     try:
         resp = requests.post(
             f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
-            json={
-                "chat_id": TELEGRAM_CHANNEL_ID,
-                "text": text,
-                "disable_web_page_preview": True,
-            },
+            json={"chat_id": TELEGRAM_CHANNEL_ID, "text": text, "disable_web_page_preview": True},
             timeout=15,
         )
         resp.raise_for_status()
-        log.info("Пост отправлен ✓")
+        log.info("Пост отправлен")
         return True
     except Exception as e:
         log.error("Ошибка Telegram: %s", e)
@@ -208,34 +159,30 @@ def send_to_telegram(text):
 
 
 def run():
-    log.info("═══ Запуск цикла ═══")
+    log.info("Запуск цикла")
     update_currency_message()
     conn = init_db()
     news_items = fetch_news(conn)
     posted_count = 0
-
     for item in news_items:
         if posted_count >= MAX_POSTS_PER_RUN:
             break
         log.info("Обрабатываю: %s", item["title"])
         post_text = rewrite_with_groq(item["title"], item["summary"])
         if not post_text:
-            log.warning("Пропускаю новость.")
-            mark_posted(conn, item["url"])
             continue
         post_text += "\n\n@ritmrublya"
         if send_to_telegram(post_text):
             mark_posted(conn, item["url"])
             posted_count += 1
-
     log.info("Опубликовано: %d", posted_count)
     conn.close()
 
 
 if __name__ == "__main__":
-    log.info("Бот запущен. Интервал: каждые %d мин.", POST_INTERVAL_MINUTES)
+    log.info("Бот запущен. Интервал: каждые %d ч.", POST_INTERVAL_HOURS)
     run()
-    schedule.every(POST_INTERVAL_MINUTES).minutes.do(run)
+    schedule.every(POST_INTERVAL_HOURS).hours.do(run)
     while True:
         schedule.run_pending()
         time.sleep(30)
