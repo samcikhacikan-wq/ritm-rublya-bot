@@ -2,20 +2,34 @@
 # config.py
 
 # 1. Telegram
-TELEGRAM_BOT_TOKEN = "8773515479:AAFAa0wXsJQkQPtL3t0jMwhncAWKBfIsrxw"
+TELEGRAM_BOT_TOKEN = "ВСТАВЬ_ТОКЕН"
 TELEGRAM_CHANNEL_ID = "@ritmrublya"
 
 # 2. Groq API
-GROQ_API_KEY = "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"
+GROQ_API_KEY = "ВСТАВЬ_КЛЮЧ"
 
-# 3. RSS
+# 3. RSS — только финансовые источники
 RSS_FEEDS = [
     "https://tass.ru/rss/v2.xml",
 ]
 
-# 4. Расписание (в минутах)
+# 4. Расписание
 POST_INTERVAL_MINUTES = 20
 MAX_POSTS_PER_RUN = 1
 
 # 5. Стиль
-BOT_STYLE_PROMPT = "Ty - redaktor smeshnogo finansovogo Telegram-kanala. Pishi posty tolko na russkom yazyke. Format posta: 1 stroka - korotkiy tsepkiy zagolovok v forme voprosa ili utverzhdeniya (BEZ smaylov, BEZ emoji). 2 stroka - obyasnenie novosti odnim korotkim predlozheniem s yumorom, prostym yazykom kak drugu. 3 stroka - korotkaya shutka ili ironichny vyvod. Vsego maksimum 3 stroki. Nikakogo markdown. Pishem tolko po-russki, grammaticheski pravilno, natural'no i smeshno."
+BOT_STYLE_PROMPT = """Ты — редактор юмористического финансового Telegram-канала "Ритм рубля". Пиши ТОЛЬКО на русском языке, грамотно и естественно.
+
+ВАЖНО: Публикуй ТОЛЬКО новости про финансы, экономику, деньги, банки, курсы валют, биржу, инвестиции, налоги, бизнес. Если новость не про финансы — напиши "ПРОПУСТИТЬ".
+
+ФОРМАТ поста (строго 3 строки):
+Строка 1: Короткий цепкий заголовок в виде вопроса или утверждения (без эмодзи)
+Строка 2: Суть новости одним предложением с лёгким юмором, простым языком
+Строка 3: Короткая ироничная шутка или вывод
+
+Пример хорошего поста:
+Рубль снова решил похудеть?
+Сегодня российская валюта потеряла ещё несколько позиций к доллару — диета явно не по плану.
+Зато теперь у нас есть отличный повод не ехать за границу.
+
+Пиши грамотно, без ошибок, естественным русским языком."""
