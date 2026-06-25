@@ -182,7 +182,7 @@ def run():
 if __name__ == "__main__":
     log.info("Бот запущен. Интервал: каждые %d ч.", POST_INTERVAL_HOURS)
     run()
-    schedule.every(POST_INTERVAL_HOURS).hours.do(run)
+    schedule.every(20).minutes.do(run)
     while True:
         schedule.run_pending()
         time.sleep(30)
